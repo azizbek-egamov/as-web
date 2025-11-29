@@ -975,7 +975,7 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* Partners Section */}
+        {/* Partners Section
         <section className="py-20 sm:py-28 bg-gradient-to-br from-gray-50 via-blue-50 to-purple-50">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-16">
@@ -994,7 +994,7 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* Testimonials Section */}
+        {/* Testimonials Section 
         <section className="py-20 sm:py-28 bg-white">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-16">
@@ -1012,6 +1012,7 @@ export default function HomePage() {
             <TestimonialsCarousel />
           </div>
         </section>
+        */}
 
         {/* Innovative Contact Section */}
         <InnovativeContact translations={translations} language={language} />
