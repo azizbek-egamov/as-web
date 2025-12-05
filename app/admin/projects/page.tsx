@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Plus, Edit, Trash2, Search, FolderOpen, Loader2, AlertCircle, X, ImageIcon } from "lucide-react"
@@ -33,6 +33,8 @@ export default function AdminProjects() {
   const [selectedImages, setSelectedImages] = useState<File[]>([])
   const [uploadingImages, setUploadingImages] = useState(false)
   const [projectImages, setProjectImages] = useState<ProjectImage[]>([])
+  const [loadingImages, setLoadingImages] = useState(false)
+  const [currentEditingProjectId, setCurrentEditingProjectId] = useState<number | null>(null)
 
   const [formData, setFormData] = useState({
     name_uz: "",
@@ -86,6 +88,8 @@ export default function AdminProjects() {
     setEditingProject(null)
     setSelectedImages([])
     setProjectImages([])
+    setCurrentEditingProjectId(null)
+    setLoadingImages(false)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -113,7 +117,7 @@ export default function AdminProjects() {
 
       resetForm()
       setIsDialogOpen(false)
-      loadProjects() // Reload projects after successful operation
+      loadProjects()
     } catch (error: any) {
       console.error("Failed to save project:", error)
       setError("Loyihani saqlashda xatolik yuz berdi")
@@ -123,6 +127,15 @@ export default function AdminProjects() {
   }
 
   const handleEdit = async (project: Project) => {
+    setError("")
+
+    // 1. Avval hamma state larni tozalash
+    setSelectedImages([])
+    setProjectImages([])
+    setCurrentEditingProjectId(project.id)
+    setLoadingImages(true)
+
+    // 2. Form ma'lumotlarini to'ldirish
     setEditingProject(project)
     setFormData({
       name_uz: project.name_uz,
@@ -138,7 +151,29 @@ export default function AdminProjects() {
       status: project.status,
       technologies: project.technologies.join(", "),
     })
-    await loadProjectImages(project.id)
+
+    // 3. Dialog ochish
+    setIsDialogOpen(true)
+
+    // 4. Rasmlarni yuklash (dialog ochilgandan keyin)
+    try {
+      const images = await ApiService.getProjectImages(project.id)
+      // Faqat hozirgi loyiha uchun rasmlarni qo'yish
+      if (project.id === project.id) {
+        setProjectImages(Array.isArray(images) ? images : [])
+      }
+    } catch (error: any) {
+      console.error("Failed to load project images:", error)
+      setProjectImages([])
+    } finally {
+      setLoadingImages(false)
+    }
+  }
+
+  const handleAddNew = () => {
+    // Hamma state larni tozalash
+    resetForm()
+    // Dialog ochish
     setIsDialogOpen(true)
   }
 
@@ -146,7 +181,7 @@ export default function AdminProjects() {
     if (confirm("Bu loyihani o'chirishni xohlaysizmi?")) {
       try {
         await ApiService.deleteProject(id)
-        loadProjects() // Reload projects after deletion
+        loadProjects()
       } catch (error: any) {
         console.error("Failed to delete project:", error)
         setError("Loyihani o'chirishda xatolik yuz berdi")
@@ -201,7 +236,6 @@ export default function AdminProjects() {
       return
     }
 
-    // Validate file types
     const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"]
     const invalidFiles = files.filter((file) => !validTypes.includes(file.type))
 
@@ -210,7 +244,6 @@ export default function AdminProjects() {
       return
     }
 
-    // Validate file sizes (max 5MB each)
     const oversizedFiles = files.filter((file) => file.size > 5 * 1024 * 1024)
     if (oversizedFiles.length > 0) {
       setError("Har bir rasm hajmi 5MB dan oshmasligi kerak")
@@ -226,8 +259,11 @@ export default function AdminProjects() {
   }
 
   const removeProjectImage = async (imageId: number) => {
+    if (!editingProject) return
+
     try {
       await ApiService.deleteProjectImage(imageId)
+      // Faqat local state dan o'chirish
       setProjectImages((prev) => prev.filter((img) => img.id !== imageId))
     } catch (error: any) {
       console.error("Failed to delete image:", error)
@@ -253,15 +289,6 @@ export default function AdminProjects() {
     }
   }
 
-  const loadProjectImages = async (projectId: number) => {
-    try {
-      const images = await ApiService.getProjectImages(projectId)
-      setProjectImages(images)
-    } catch (error: any) {
-      console.error("Failed to load project images:", error)
-    }
-  }
-
   return (
     <AdminLayout>
       <div className="space-y-8">
@@ -272,285 +299,299 @@ export default function AdminProjects() {
             <p className="text-gray-600 mt-1">Loyihalarni qo'shish, tahrirlash va boshqarish</p>
           </div>
 
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={resetForm} className="bg-gradient-to-r from-blue-600 to-purple-600">
-                <Plus className="w-4 h-4 mr-2" />
-                Yangi Loyiha
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>{editingProject ? "Loyihani Tahrirlash" : "Yangi Loyiha Qo'shish"}</DialogTitle>
-              </DialogHeader>
+          <Button onClick={handleAddNew} className="bg-gradient-to-r from-blue-600 to-purple-600">
+            <Plus className="w-4 h-4 mr-2" />
+            Yangi Loyiha
+          </Button>
+        </div>
 
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <Tabs defaultValue="uz" className="w-full">
-                  <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="uz">O'zbek</TabsTrigger>
-                    <TabsTrigger value="ru">Русский</TabsTrigger>
-                    <TabsTrigger value="en">English</TabsTrigger>
-                  </TabsList>
+        <Dialog
+          open={isDialogOpen}
+          onOpenChange={(open) => {
+            if (!open) {
+              resetForm()
+            }
+            setIsDialogOpen(open)
+          }}
+        >
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{editingProject ? "Loyihani Tahrirlash" : "Yangi Loyiha Qo'shish"}</DialogTitle>
+              <DialogDescription>
+                {editingProject ? "Loyiha ma'lumotlarini o'zgartiring va saqlang" : "Yangi loyiha qo'shing"}
+              </DialogDescription>
+            </DialogHeader>
 
-                  {/* Existing tabs content */}
-                  <TabsContent value="uz" className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="name-uz">Loyiha nomi (O'zbek)</Label>
-                      <Input
-                        id="name-uz"
-                        value={formData.name_uz}
-                        onChange={(e) => setFormData({ ...formData, name_uz: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="description-uz">Tavsif (O'zbek)</Label>
-                      <Textarea
-                        id="description-uz"
-                        value={formData.description_uz}
-                        onChange={(e) => setFormData({ ...formData, description_uz: e.target.value })}
-                        rows={4}
-                        required
-                      />
-                    </div>
-                  </TabsContent>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <Tabs defaultValue="uz" className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="uz">O'zbek</TabsTrigger>
+                  <TabsTrigger value="ru">Русский</TabsTrigger>
+                  <TabsTrigger value="en">English</TabsTrigger>
+                </TabsList>
 
-                  <TabsContent value="ru" className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="name-ru">Название проекта (Русский)</Label>
-                      <Input
-                        id="name-ru"
-                        value={formData.name_ru}
-                        onChange={(e) => setFormData({ ...formData, name_ru: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="description-ru">Описание (Русский)</Label>
-                      <Textarea
-                        id="description-ru"
-                        value={formData.description_ru}
-                        onChange={(e) => setFormData({ ...formData, description_ru: e.target.value })}
-                        rows={4}
-                        required
-                      />
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="en" className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="name-en">Project Title (English)</Label>
-                      <Input
-                        id="name-en"
-                        value={formData.name_en}
-                        onChange={(e) => setFormData({ ...formData, name_en: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="description-en">Description (English)</Label>
-                      <Textarea
-                        id="description-en"
-                        value={formData.description_en}
-                        onChange={(e) => setFormData({ ...formData, description_en: e.target.value })}
-                        rows={4}
-                        required
-                      />
-                    </div>
-                  </TabsContent>
-                </Tabs>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <TabsContent value="uz" className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="category">Kategoriya</Label>
-                    <Select
-                      value={formData.category}
-                      onValueChange={(value) => setFormData({ ...formData, category: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Kategoriyani tanlang" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {categories.map((category) => (
-                          <SelectItem key={category} value={category}>
-                            {category.charAt(0).toUpperCase() + category.slice(1).replace("_", " ")}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="year">Yil</Label>
+                    <Label htmlFor="name-uz">Loyiha nomi (O'zbek)</Label>
                     <Input
-                      id="year"
-                      value={formData.year}
-                      onChange={(e) => setFormData({ ...formData, year: e.target.value })}
+                      id="name-uz"
+                      value={formData.name_uz}
+                      onChange={(e) => setFormData({ ...formData, name_uz: e.target.value })}
                       required
                     />
                   </div>
-
                   <div className="space-y-2">
-                    <Label htmlFor="continuity">Davomiyligi</Label>
-                    <Input
-                      id="continuity"
-                      value={formData.continuity}
-                      onChange={(e) => setFormData({ ...formData, continuity: e.target.value })}
+                    <Label htmlFor="description-uz">Tavsif (O'zbek)</Label>
+                    <Textarea
+                      id="description-uz"
+                      value={formData.description_uz}
+                      onChange={(e) => setFormData({ ...formData, description_uz: e.target.value })}
+                      rows={4}
                       required
                     />
                   </div>
+                </TabsContent>
 
+                <TabsContent value="ru" className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="team_size">Jamoa hajmi</Label>
+                    <Label htmlFor="name-ru">Название проекта (Русский)</Label>
                     <Input
-                      id="team_size"
-                      value={formData.team_size}
-                      onChange={(e) => setFormData({ ...formData, team_size: e.target.value })}
+                      id="name-ru"
+                      value={formData.name_ru}
+                      onChange={(e) => setFormData({ ...formData, name_ru: e.target.value })}
                       required
                     />
                   </div>
-
                   <div className="space-y-2">
-                    <Label htmlFor="status">Holati</Label>
-                    <Select
-                      value={formData.status}
-                      onValueChange={(value: "completed" | "in_progress") =>
-                        setFormData({ ...formData, status: value })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="in_progress">Jarayonda</SelectItem>
-                        <SelectItem value="completed">Tugallangan</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="description-ru">Описание (Русский)</Label>
+                    <Textarea
+                      id="description-ru"
+                      value={formData.description_ru}
+                      onChange={(e) => setFormData({ ...formData, description_ru: e.target.value })}
+                      rows={4}
+                      required
+                    />
                   </div>
+                </TabsContent>
+
+                <TabsContent value="en" className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name-en">Project Title (English)</Label>
+                    <Input
+                      id="name-en"
+                      value={formData.name_en}
+                      onChange={(e) => setFormData({ ...formData, name_en: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="description-en">Description (English)</Label>
+                    <Textarea
+                      id="description-en"
+                      value={formData.description_en}
+                      onChange={(e) => setFormData({ ...formData, description_en: e.target.value })}
+                      rows={4}
+                      required
+                    />
+                  </div>
+                </TabsContent>
+              </Tabs>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="category">Kategoriya</Label>
+                  <Select
+                    value={formData.category}
+                    onValueChange={(value) => setFormData({ ...formData, category: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Kategoriyani tanlang" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((category) => (
+                        <SelectItem key={category} value={category}>
+                          {category.charAt(0).toUpperCase() + category.slice(1).replace("_", " ")}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="technologies">Texnologiyalar (vergul bilan ajrating)</Label>
+                  <Label htmlFor="year">Yil</Label>
                   <Input
-                    id="technologies"
-                    value={formData.technologies}
-                    onChange={(e) => setFormData({ ...formData, technologies: e.target.value })}
-                    placeholder="React, Node.js, MongoDB"
+                    id="year"
+                    value={formData.year}
+                    onChange={(e) => setFormData({ ...formData, year: e.target.value })}
                     required
                   />
                 </div>
 
-                <div className="space-y-4">
-                  <Label>Loyiha rasmlari (maksimal 4 ta)</Label>
-
-                  {/* Existing project images */}
-                  {projectImages.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-sm text-gray-600">Mavjud rasmlar:</p>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {projectImages.map((image) => (
-                          <div key={image.id} className="relative group">
-                            <Image
-                              src={image.image || "/placeholder.svg"}
-                              alt="Project image"
-                              width={150}
-                              height={100}
-                              className="w-full h-24 object-cover rounded-lg border"
-                            />
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                              onClick={() => removeProjectImage(image.id)}
-                            >
-                              <X className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Selected images preview */}
-                  {selectedImages.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-sm text-gray-600">Tanlangan rasmlar:</p>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {selectedImages.map((file, index) => (
-                          <div key={index} className="relative group">
-                            <Image
-                              src={URL.createObjectURL(file) || "/placeholder.svg"}
-                              alt="Selected image"
-                              width={150}
-                              height={100}
-                              className="w-full h-24 object-cover rounded-lg border"
-                            />
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                              onClick={() => removeSelectedImage(index)}
-                            >
-                              <X className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Image upload input */}
-                  {selectedImages.length + projectImages.length < 4 && (
-                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                      <input
-                        type="file"
-                        multiple
-                        accept="image/jpeg,image/jpg,image/png,image/webp"
-                        onChange={handleImageSelect}
-                        className="hidden"
-                        id="image-upload"
-                      />
-                      <label htmlFor="image-upload" className="cursor-pointer">
-                        <ImageIcon className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                        <p className="text-gray-600">Rasmlarni tanlash uchun bosing</p>
-                        <p className="text-sm text-gray-500 mt-1">
-                          JPG, PNG, WebP formatlar qabul qilinadi (har biri max 5MB)
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          Qolgan: {4 - (selectedImages.length + projectImages.length)} ta rasm
-                        </p>
-                      </label>
-                    </div>
-                  )}
+                <div className="space-y-2">
+                  <Label htmlFor="continuity">Davomiyligi</Label>
+                  <Input
+                    id="continuity"
+                    value={formData.continuity}
+                    onChange={(e) => setFormData({ ...formData, continuity: e.target.value })}
+                    required
+                  />
                 </div>
 
-                <div className="flex justify-end space-x-4">
-                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
-                    Bekor qilish
-                  </Button>
-                  <Button type="submit" disabled={submitting || uploadingImages}>
-                    {submitting || uploadingImages ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        {uploadingImages
-                          ? "Rasmlar yuklanmoqda..."
-                          : editingProject
-                            ? "Yangilanmoqda..."
-                            : "Qo'shilmoqda..."}
-                      </>
-                    ) : editingProject ? (
-                      "Yangilash"
-                    ) : (
-                      "Qo'shish"
-                    )}
-                  </Button>
+                <div className="space-y-2">
+                  <Label htmlFor="team_size">Jamoa hajmi</Label>
+                  <Input
+                    id="team_size"
+                    value={formData.team_size}
+                    onChange={(e) => setFormData({ ...formData, team_size: e.target.value })}
+                    required
+                  />
                 </div>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="status">Holati</Label>
+                  <Select
+                    value={formData.status}
+                    onValueChange={(value: "completed" | "in_progress") => setFormData({ ...formData, status: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="in_progress">Jarayonda</SelectItem>
+                      <SelectItem value="completed">Tugallangan</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="technologies">Texnologiyalar (vergul bilan ajrating)</Label>
+                <Input
+                  id="technologies"
+                  value={formData.technologies}
+                  onChange={(e) => setFormData({ ...formData, technologies: e.target.value })}
+                  placeholder="React, Node.js, MongoDB"
+                  required
+                />
+              </div>
+
+              <div className="space-y-4">
+                <Label>Loyiha rasmlari (maksimal 4 ta)</Label>
+
+                {loadingImages && (
+                  <div className="flex items-center justify-center p-4 border rounded-lg bg-gray-50">
+                    <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                    <span className="text-gray-600">Rasmlar yuklanmoqda...</span>
+                  </div>
+                )}
+
+                {/* Existing project images - faqat rasmlar yuklangandan keyin ko'rsatish */}
+                {!loadingImages && projectImages.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm text-gray-600">Mavjud rasmlar:</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {projectImages.map((image) => (
+                        <div key={image.id} className="relative group">
+                          <Image
+                            src={image.image || "/placeholder.svg"}
+                            alt="Project image"
+                            width={150}
+                            height={100}
+                            className="w-full h-24 object-cover rounded-lg border"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => removeProjectImage(image.id)}
+                          >
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Selected images preview */}
+                {selectedImages.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm text-gray-600">Tanlangan rasmlar:</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {selectedImages.map((file, index) => (
+                        <div key={index} className="relative group">
+                          <Image
+                            src={URL.createObjectURL(file) || "/placeholder.svg"}
+                            alt="Selected image"
+                            width={150}
+                            height={100}
+                            className="w-full h-24 object-cover rounded-lg border"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => removeSelectedImage(index)}
+                          >
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Image upload input */}
+                {!loadingImages && selectedImages.length + projectImages.length < 4 && (
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/jpeg,image/jpg,image/png,image/webp"
+                      onChange={handleImageSelect}
+                      className="hidden"
+                      id="image-upload"
+                    />
+                    <label htmlFor="image-upload" className="cursor-pointer">
+                      <ImageIcon className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                      <p className="text-gray-600">Rasmlarni tanlash uchun bosing</p>
+                      <p className="text-sm text-gray-500 mt-1">
+                        JPG, PNG, WebP formatlar qabul qilinadi (har biri max 5MB)
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        Qolgan: {4 - (selectedImages.length + projectImages.length)} ta rasm
+                      </p>
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end space-x-4">
+                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                  Bekor qilish
+                </Button>
+                <Button type="submit" disabled={submitting || uploadingImages || loadingImages}>
+                  {submitting || uploadingImages ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      {uploadingImages
+                        ? "Rasmlar yuklanmoqda..."
+                        : editingProject
+                          ? "Yangilanmoqda..."
+                          : "Qo'shilmoqda..."}
+                    </>
+                  ) : editingProject ? (
+                    "Yangilash"
+                  ) : (
+                    "Qo'shish"
+                  )}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         {/* Error Banner */}
         {error && (
@@ -617,7 +658,7 @@ export default function AdminProjects() {
             <Card key={project.id} className="overflow-hidden hover:shadow-lg transition-shadow">
               <div className="relative">
                 <Image
-                  src={project.images?.[0]?.image || "/placeholder.svg?height=200&width=300&text=Project"}
+                  src={project.images?.[0]?.image || "/placeholder.svg?height=200&width=300&query=project"}
                   alt={project.name_uz}
                   width={300}
                   height={200}
